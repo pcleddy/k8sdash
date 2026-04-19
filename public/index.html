@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>k8sdash</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+
+<header>
+  <h1>k8sdash</h1>
+  <label for="ctx-select" class="sr-only">Context</label>
+  <select id="ctx-select" disabled></select>
+  <label for="ns-select" class="sr-only">Namespace</label>
+  <select id="ns-select" disabled><option>default</option></select>
+  <div class="controls">
+    <button id="refresh-btn">Refresh</button>
+    <label class="auto-label">
+      <input type="checkbox" id="auto-refresh" checked />
+      Auto-refresh
+    </label>
+    <span id="last-updated"></span>
+  </div>
+</header>
+
+<div id="error-banner" role="alert"></div>
+
+<main>
+  <section class="resource-section" id="section-deployments">
+    <div class="section-header">
+      <h2>Deployments</h2>
+      <span class="count-badge" id="badge-deployments">–</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th><th>Ready</th><th>Available</th><th>Updated</th><th>Images</th><th>Age</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-deployments"><tr class="loading-row"><td colspan="6">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="resource-section" id="section-services">
+    <div class="section-header">
+      <h2>Services</h2>
+      <span class="count-badge" id="badge-services">–</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th><th>Type</th><th>Cluster IP</th><th>External IPs</th><th>Ports</th><th>Age</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-services"><tr class="loading-row"><td colspan="6">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="resource-section" id="section-secrets">
+    <div class="section-header">
+      <h2>Secrets</h2>
+      <span class="count-badge" id="badge-secrets">–</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th><th>Type</th><th>Keys</th><th>Age</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-secrets"><tr class="loading-row"><td colspan="4">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="resource-section" id="section-pods">
+    <div class="section-header">
+      <h2>Pods</h2>
+      <span class="count-badge" id="badge-pods">–</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th><th>Phase</th><th>Ready</th><th>Restarts</th><th>Node</th><th>Age</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-pods"><tr class="loading-row"><td colspan="6">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="resource-section" id="section-statefulsets">
+    <div class="section-header">
+      <h2>StatefulSets</h2>
+      <span class="count-badge" id="badge-statefulsets">–</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th><th>Ready</th><th>Service</th><th>Images</th><th>Age</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-statefulsets"><tr class="loading-row"><td colspan="5">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>
