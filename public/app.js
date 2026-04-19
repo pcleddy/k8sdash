@@ -165,8 +165,12 @@ async function reloadNamespaces() {
   nsSelect.disabled = true;
   try {
     const res = await fetch('/api/namespaces');
-    if (!res.ok) return;
-    const { namespaces } = await res.json();
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showBanner(`Could not load namespaces: ${body.error ?? `HTTP ${res.status}`}`);
+      return;
+    }
+    const { namespaces } = body;
     nsSelect.innerHTML = namespaces
       .map((ns) => `<option value="${esc(ns)}">${esc(ns)}</option>`)
       .join('');

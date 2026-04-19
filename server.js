@@ -38,6 +38,15 @@ function serveFile(res, filePath) {
 // JSON response helpers
 // ---------------------------------------------------------------------------
 
+function apiError(err) {
+  if (err.name === 'AbortError' || err.type === 'aborted') {
+    console.warn(`[timeout] ${err.message}`);
+    return { status: 504, message: 'cluster request timed out' };
+  }
+  console.error(err);
+  return { status: 500, message: err.message };
+}
+
 function json(res, status, body) {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
@@ -82,7 +91,7 @@ async function handleRequest(req, res) {
   }
 
   // API routes
-  if (pathname === '/api/contexts' && req.method === 'GET') {
+if (pathname === '/api/contexts' && req.method === 'GET') {
     try {
       json(res, 200, { contexts: listContexts(), current: getContext().context });
     } catch (err) {
@@ -127,8 +136,8 @@ async function handleRequest(req, res) {
       const namespaces = await listNamespaces();
       json(res, 200, { namespaces, current: 'default' });
     } catch (err) {
-      console.error(err);
-      json(res, 500, { error: err.message });
+      const { status, message } = apiError(err);
+      json(res, status, { error: message });
     }
     return;
   }
@@ -143,8 +152,8 @@ async function handleRequest(req, res) {
       const data = await listResources(ns);
       json(res, 200, data);
     } catch (err) {
-      console.error(err);
-      json(res, 500, { error: err.message });
+      const { status, message } = apiError(err);
+      json(res, status, { error: message });
     }
     return;
   }

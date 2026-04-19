@@ -6,10 +6,11 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
-    "@kubernetes/client-node": "^0.21.0"
+    "@kubernetes/client-node": "^1.4.0"
   },
   "license": "MIT",
   "engines": {
