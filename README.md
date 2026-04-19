@@ -34,6 +34,7 @@ PORT=8080 KUBECONFIG=~/.kube/prod npm start
 ```
 
 ## Usage
+- **Context dropdown** — switches the active kubeconfig context; reloads namespaces and all five tables.
 - **Namespace dropdown** — switches the fetch target; all five tables reload.
 - **Refresh** button — forces an immediate re-fetch.
 - **Auto-refresh** checkbox — on by default; refetches every 2 minutes.
@@ -42,7 +43,9 @@ PORT=8080 KUBECONFIG=~/.kube/prod npm start
 Secrets are shown by **name, type, key count, and age**. Values are never sent to the browser.
 
 ## Endpoints (for curl / debugging)
-- `GET /api/context` — current context and cluster.
+- `GET /api/contexts` — `{ contexts: string[], current: "<name>" }`.
+- `GET /api/context` — current context, cluster, user, and server.
+- `POST /api/context` — switch context; body `{ "context": "<name>" }`.
 - `GET /api/namespaces` — `{ namespaces: string[], current: "default" }`.
 - `GET /api/resources?namespace=default` — combined payload used by the UI.
 
@@ -70,6 +73,9 @@ k8sdash/
     styles.css           # styles
   scripts/
     setup-kind.sh        # spin up a local kind cluster with sample fixtures
+  test/
+    age.test.js          # unit tests for age helper
+    projections.test.js  # unit tests for k8s projection functions
   package.json
   SPEC.md  ARCH.md  README.md
 ```
@@ -81,10 +87,11 @@ k8sdash/
 - **Nothing updates** — check the browser console for fetch errors; check the server console for stack traces.
 
 ## Scripts
-| Command        | What it does                 |
-|----------------|------------------------------|
-| `npm start`    | Starts the server on `$PORT` |
-| `npm run dev`  | Starts with `--watch` reload |
+| Command        | What it does                           |
+|----------------|----------------------------------------|
+| `npm start`    | Starts the server on `$PORT`           |
+| `npm run dev`  | Starts with `--watch` reload           |
+| `npm test`     | Runs unit tests (`test/*.test.js`)     |
 
 ## License
 MIT (or your preference — update before publishing).

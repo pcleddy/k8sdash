@@ -13,7 +13,6 @@ A minimal single-page web app for browsing read-only Kubernetes cluster state. A
 ## Non-Goals (v1)
 - Authentication / multi-user support (assumes single local user).
 - Mutating the cluster (no create / edit / delete).
-- Switching kube contexts or clusters from the UI.
 - Streaming logs, exec into pods, port-forward.
 - Advanced filtering, search, or sorting beyond simple table rendering.
 - Production hardening (TLS termination, rate limiting, RBAC proxy).
@@ -23,7 +22,10 @@ A single local developer or operator who already has `kubectl` working against a
 
 ## Functional Requirements
 
-### FR-1: Kubeconfig loading
+### FR-1: Kubeconfig loading and context switching
+The server exposes `GET /api/contexts` to list all contexts in the kubeconfig and `POST /api/context` to switch the active context at runtime. After a context switch the server resets its API clients so subsequent requests target the new cluster.
+
+### FR-1a: Kubeconfig loading
 The server MUST load the user's default kubeconfig (`~/.kube/config` or `$KUBECONFIG`) using `KubeConfig.loadFromDefault()`. The **current-context** determines the target cluster. If no valid context is found, the server returns a clear error on the relevant endpoints and logs a helpful message at startup.
 
 ### FR-2: Namespaces endpoint
@@ -46,7 +48,7 @@ Each array item is a compact projection of the corresponding Kubernetes object (
 
 ### FR-4: Page layout
 The SPA is a single HTML page with:
-- A header containing the cluster/context name and a namespace `<select>` dropdown.
+- A header containing a context `<select>` dropdown and a namespace `<select>` dropdown.
 - A "Refresh" button and a small "Last updated …" timestamp.
 - Five stacked sections, each a table: Deployments, Services, Secrets, Pods, StatefulSets.
 - Each section shows a count badge and a table body; empty results render "No items."
@@ -80,13 +82,15 @@ The Secrets table MUST NOT display the decoded `data` values. It shows only: nam
 `age` is a human-friendly string (e.g. `5d`, `3h`, `42m`) derived from `metadata.creationTimestamp`.
 
 ## HTTP API Summary
-| Method | Path                              | Description                                |
-|--------|-----------------------------------|--------------------------------------------|
-| GET    | `/`                               | Serves `index.html`.                       |
-| GET    | `/static/*`                       | Serves static client assets (JS, CSS).     |
-| GET    | `/api/context`                    | Returns current context + cluster name.    |
-| GET    | `/api/namespaces`                 | Returns list of namespaces.                |
-| GET    | `/api/resources?namespace=<ns>`   | Returns all five resource lists for `ns`.  |
+| Method | Path                              | Description                                         |
+|--------|-----------------------------------|-----------------------------------------------------|
+| GET    | `/`                               | Serves `index.html`.                                |
+| GET    | `/static/*`                       | Serves static client assets (JS, CSS).              |
+| GET    | `/api/contexts`                   | Returns `{ contexts: string[], current: string }`.  |
+| GET    | `/api/context`                    | Returns current context + cluster name.             |
+| POST   | `/api/context`                    | Switches context; body `{ context: string }`.       |
+| GET    | `/api/namespaces`                 | Returns list of namespaces.                         |
+| GET    | `/api/resources?namespace=<ns>`   | Returns all five resource lists for `ns`.           |
 
 All API responses are JSON; errors use `{ error: string }` with an appropriate HTTP status code (`4xx` for client issues, `5xx` for backend/cluster issues).
 
