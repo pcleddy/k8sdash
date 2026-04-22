@@ -55,6 +55,48 @@
   </div>
 </dialog>
 
+<!-- Pod Logs Modal -->
+<dialog id="pod-logs-modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>Logs: <span id="logs-pod-name"></span></h2>
+      <button id="logs-close" type="button" aria-label="Close">×</button>
+    </div>
+    <div class="modal-header-secondary">
+      <label for="logs-container-select" style="font-size: 12px; font-weight: 600;">Container:</label>
+      <select id="logs-container-select" style="padding: 4px 8px; font-size: 12px;"></select>
+    </div>
+    <div id="pod-logs-body" style="padding: 12px 20px; overflow-y: auto; max-height: calc(70vh - 80px); background: #1a1a2e; color: #e2e8f0; font-family: 'SFMono-Regular', Consolas, monospace; font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;">
+      Loading…
+    </div>
+    <div class="modal-footer">
+      <button id="logs-close-btn" type="button">Close</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- Describe Pod Modal -->
+<dialog id="describe-pod-modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>Pod: <span id="describe-pod-name"></span></h2>
+      <button id="describe-close" type="button" aria-label="Close">×</button>
+    </div>
+    <div class="modal-header-secondary">
+      <label class="yaml-toggle">
+        <input type="checkbox" id="yaml-toggle" />
+        Show Raw YAML
+      </label>
+    </div>
+    <div id="describe-pod-body" style="padding: 20px; overflow-y: auto; max-height: calc(70vh - 80px);">
+      Loading…
+    </div>
+    <div class="modal-footer">
+      <button id="describe-close-btn" type="button">Close</button>
+    </div>
+  </div>
+</dialog>
+
 <!-- View Secret Modal -->
 <dialog id="view-secret-modal">
   <div class="modal-content">
@@ -133,10 +175,10 @@
       <table>
         <thead>
           <tr>
-            <th>Name</th><th>Phase</th><th>Ready</th><th>Restarts</th><th>Node</th><th>Age</th>
+            <th>Name</th><th>Phase</th><th>Ready</th><th>Restarts</th><th>Node</th><th>Age</th><th>Actions</th>
           </tr>
         </thead>
-        <tbody id="tbody-pods"><tr class="loading-row"><td colspan="6">Loading…</td></tr></tbody>
+        <tbody id="tbody-pods"><tr class="loading-row"><td colspan="8">Loading…</td></tr></tbody>
       </table>
     </div>
   </section>

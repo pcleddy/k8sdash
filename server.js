@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getContext, listContexts, switchContext, listNamespaces, listResources, createSecret, getSecret, updateSecret } from './lib/k8s.js';
+import { getContext, listContexts, switchContext, listNamespaces, listResources, createSecret, getSecret, updateSecret, getPodDetails, getPodEvents, getPodLogs } from './lib/k8s.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, 'public');
@@ -264,6 +264,55 @@ if (pathname === '/api/contexts' && req.method === 'GET') {
         json(res, 400, { error: err.message });
       }
     });
+    return;
+  }
+
+  // GET /api/pods/:namespace/:name
+  const podMatch = pathname.match(/^\/api\/pods\/([^\/]+)\/([^\/]+)$/);
+  if (podMatch && req.method === 'GET') {
+    const [, namespace, name] = podMatch;
+
+    if (!validNamespace(namespace)) {
+      json(res, 400, { error: 'invalid namespace' });
+      return;
+    }
+
+    try {
+      const details = await getPodDetails(namespace, name);
+      const events = await getPodEvents(namespace, name);
+      details.events = events;
+      json(res, 200, details);
+    } catch (err) {
+      const { status, message } = apiError(err);
+      json(res, status, { error: message });
+    }
+    return;
+  }
+
+  // GET /api/pods/:namespace/:name/logs
+  const logMatch = pathname.match(/^\/api\/pods\/([^\/]+)\/([^\/]+)\/logs$/);
+  if (logMatch && req.method === 'GET') {
+    const [, namespace, name] = logMatch;
+    const container = url.searchParams.get('container');
+    const tailLines = parseInt(url.searchParams.get('tail') ?? '100', 10);
+
+    if (!validNamespace(namespace)) {
+      json(res, 400, { error: 'invalid namespace' });
+      return;
+    }
+
+    if (!container) {
+      json(res, 400, { error: 'container parameter required' });
+      return;
+    }
+
+    try {
+      const logData = await getPodLogs(namespace, name, container, tailLines);
+      json(res, 200, logData);
+    } catch (err) {
+      const { status, message } = apiError(err);
+      json(res, status, { error: message });
+    }
     return;
   }
 

@@ -31,6 +31,25 @@ const viewSecretBody     = document.getElementById('view-secret-body');
 const viewClose          = document.getElementById('view-close');
 const viewCloseBtn       = document.getElementById('view-close-btn');
 
+// Pod logs modal refs
+const podLogsModal       = document.getElementById('pod-logs-modal');
+const logsPodsName       = document.getElementById('logs-pod-name');
+const logsBody           = document.getElementById('pod-logs-body');
+const logsContainerSelect = document.getElementById('logs-container-select');
+const logsClose          = document.getElementById('logs-close');
+const logsCloseBtn       = document.getElementById('logs-close-btn');
+let currentPodName       = null;
+let currentPodNamespace  = null;
+let currentContainers    = [];
+
+// Describe pod modal refs
+const describePodModal   = document.getElementById('describe-pod-modal');
+const describePodName    = document.getElementById('describe-pod-name');
+const describePodBody    = document.getElementById('describe-pod-body');
+const describeClose      = document.getElementById('describe-close');
+const describeCloseBtn   = document.getElementById('describe-close-btn');
+const yamlToggle        = document.getElementById('yaml-toggle');
+
 // In-flight AbortController for resource fetches
 let controller = null;
 let autoTimer  = null;
@@ -124,7 +143,7 @@ function renderSecrets(items) {
 }
 
 function renderPods(items) {
-  if (!items.length) return '<tr class="empty-row"><td colspan="6">No items.</td></tr>';
+  if (!items.length) return '<tr class="empty-row"><td colspan="8">No items.</td></tr>';
   return items.map((p) => `<tr>
     <td>${esc(p.name)}</td>
     <td><span class="phase ${phaseClass(p.phase)}">${esc(p.phase)}</span></td>
@@ -132,6 +151,10 @@ function renderPods(items) {
     <td>${esc(p.restarts)}</td>
     <td>${esc(p.node)}</td>
     <td>${esc(p.age)}</td>
+    <td>
+      <button class="logs-pod-btn" data-name="${esc(p.name)}" type="button" title="View pod logs">Logs</button>
+      <button class="describe-pod-btn" data-name="${esc(p.name)}" type="button" title="View pod details">Describe</button>
+    </td>
   </tr>`).join('');
 }
 
@@ -162,7 +185,7 @@ function renderSection(key, renderFn, colspan) {
 const applyDeployments  = renderSection('deployments',  renderDeployments,  6);
 const applyServices     = renderSection('services',     renderServices,     6);
 const applySecrets      = renderSection('secrets',      renderSecrets,      5);
-const applyPods         = renderSection('pods',         renderPods,         6);
+const applyPods         = renderSection('pods',         renderPods,         8);
 const applyStatefulSets = renderSection('statefulsets', renderStatefulSets, 5);
 
 // ---------------------------------------------------------------------------
@@ -497,6 +520,203 @@ async function submitAddSecret(e) {
 }
 
 // ---------------------------------------------------------------------------
+// Pod logs modal
+// ---------------------------------------------------------------------------
+
+async function openPodLogsModal(namespace, name) {
+  currentPodName = name;
+  currentPodNamespace = namespace;
+  logsPodsName.textContent = name;
+  logsBody.textContent = 'Loading…';
+
+  podLogsModal.showModal();
+
+  try {
+    // First fetch pod details to get containers
+    const res = await fetch(`/api/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      throw new Error(body.error ?? `HTTP ${res.status}`);
+    }
+
+    const details = await res.json();
+    currentContainers = details.containers.map((c) => c.name);
+
+    // Populate container dropdown
+    logsContainerSelect.innerHTML = currentContainers
+      .map((cname) => `<option value="${esc(cname)}">${esc(cname)}</option>`)
+      .join('');
+
+    // Fetch logs for first container
+    if (currentContainers.length > 0) {
+      await fetchAndDisplayLogs(namespace, name, currentContainers[0]);
+    } else {
+      logsBody.textContent = 'No containers in pod';
+    }
+  } catch (err) {
+    logsBody.textContent = `Error: ${err.message}`;
+  }
+}
+
+async function fetchAndDisplayLogs(namespace, name, container) {
+  logsBody.textContent = 'Fetching logs…';
+
+  try {
+    const res = await fetch(
+      `/api/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/logs?container=${encodeURIComponent(container)}&tail=200`
+    );
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      throw new Error(body.error ?? `HTTP ${res.status}`);
+    }
+
+    const logData = await res.json();
+
+    if (logData.error === 'container_not_ready') {
+      logsBody.textContent = '(Container not ready yet - still initializing)';
+    } else {
+      logsBody.textContent = logData.logs;
+    }
+  } catch (err) {
+    logsBody.textContent = `Error fetching logs: ${err.message}`;
+  }
+}
+
+function closePodLogsModal() {
+  podLogsModal.close();
+}
+
+// ---------------------------------------------------------------------------
+// Describe pod modal
+// ---------------------------------------------------------------------------
+
+let currentPodDetails = null;
+
+async function openDescribePodModal(namespace, name) {
+  describePodName.textContent = name;
+  describePodBody.innerHTML = '<div style="color: #94a3b8;">Loading…</div>';
+  yamlToggle.checked = false;
+  describePodModal.showModal();
+
+  try {
+    const res = await fetch(`/api/pods/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      throw new Error(body.error ?? `HTTP ${res.status}`);
+    }
+
+    currentPodDetails = await res.json();
+    renderPodDetails(currentPodDetails, false);
+  } catch (err) {
+    describePodBody.innerHTML = `<div style="color: #dc2626;">Error: ${esc(err.message)}</div>`;
+  }
+}
+
+function renderPodDetails(details, showYaml) {
+  if (showYaml) {
+    describePodBody.innerHTML = `<pre style="background: #f8fafc; padding: 12px; border-radius: 4px; overflow-x: auto; font-family: 'SFMono-Regular', Consolas, monospace; font-size: 11px;"><code>${esc(JSON.stringify(details.raw, null, 2))}</code></pre>`;
+    return;
+  }
+
+  const containerHtml = details.containers.map((c) => `
+    <div class="pod-detail-section">
+      <h4>${esc(c.name)}</h4>
+      <div class="pod-detail-row">
+        <span class="label">Image:</span> <code>${esc(c.image)}</code>
+      </div>
+      <div class="pod-detail-row">
+        <span class="label">Ready:</span> ${c.ready ? '✓' : '✗'}
+      </div>
+      <div class="pod-detail-row">
+        <span class="label">Restarts:</span> ${c.restartCount}
+      </div>
+      ${c.resources.requests ? `
+        <div class="pod-detail-row">
+          <span class="label">Requests:</span> ${Object.entries(c.resources.requests).map(([k, v]) => `${k}: ${v}`).join(', ') || 'None'}
+        </div>
+      ` : ''}
+      ${c.resources.limits ? `
+        <div class="pod-detail-row">
+          <span class="label">Limits:</span> ${Object.entries(c.resources.limits).map(([k, v]) => `${k}: ${v}`).join(', ') || 'None'}
+        </div>
+      ` : ''}
+    </div>
+  `).join('');
+
+  const conditionsHtml = details.conditions.length ? details.conditions.map((cond) => `
+    <div class="pod-detail-row">
+      <span class="label">${esc(cond.type)}:</span>
+      <span style="color: ${cond.status === 'True' ? '#16a34a' : '#dc2626'}; font-weight: 600;">${esc(cond.status)}</span>
+      ${cond.reason ? `<span style="color: #64748b; font-size: 11px;">${esc(cond.reason)}</span>` : ''}
+    </div>
+  `).join('') : '<div style="color: #94a3b8;">No conditions</div>';
+
+  const eventsHtml = details.events.length ? details.events.slice(0, 10).map((evt) => `
+    <div class="pod-event">
+      <div style="font-weight: 600; color: #334155;">${esc(evt.reason)}</div>
+      <div style="color: #64748b; font-size: 11px;">${esc(evt.message)}</div>
+      <div style="color: #94a3b8; font-size: 10px;">${evt.lastTimestamp || evt.firstTimestamp}</div>
+    </div>
+  `).join('') : '<div style="color: #94a3b8;">No recent events</div>';
+
+  const labelsHtml = Object.entries(details.labels).length ? Object.entries(details.labels).map(([k, v]) => `
+    <span class="pod-label">${esc(k)}=${esc(v)}</span>
+  `).join('') : '<span style="color: #94a3b8;">No labels</span>';
+
+  const html = `
+    <div class="pod-detail-section">
+      <h3>Status</h3>
+      <div class="pod-detail-row">
+        <span class="label">Phase:</span> <span style="font-weight: 600;">${esc(details.phase)}</span>
+      </div>
+      <div class="pod-detail-row">
+        <span class="label">Node:</span> ${esc(details.nodeName)}
+      </div>
+      <div class="pod-detail-row">
+        <span class="label">Service Account:</span> ${esc(details.serviceAccount)}
+      </div>
+    </div>
+
+    <div class="pod-detail-section">
+      <h3>Conditions</h3>
+      ${conditionsHtml}
+    </div>
+
+    <div class="pod-detail-section">
+      <h3>Containers (${details.containers.length})</h3>
+      ${containerHtml}
+    </div>
+
+    ${details.initContainers.length ? `
+      <div class="pod-detail-section">
+        <h3>Init Containers (${details.initContainers.length})</h3>
+        ${details.initContainers.map((c) => `<div style="color: #64748b; font-size: 12px;"><strong>${esc(c.name)}</strong>: ${esc(c.image)}</div>`).join('')}
+      </div>
+    ` : ''}
+
+    <div class="pod-detail-section">
+      <h3>Labels</h3>
+      <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+        ${labelsHtml}
+      </div>
+    </div>
+
+    <div class="pod-detail-section">
+      <h3>Recent Events</h3>
+      ${eventsHtml}
+    </div>
+  `;
+
+  describePodBody.innerHTML = html;
+}
+
+function closeDescribePodModal() {
+  describePodModal.close();
+  currentPodDetails = null;
+}
+
+// ---------------------------------------------------------------------------
 // Bootstrap
 // ---------------------------------------------------------------------------
 
@@ -550,7 +770,7 @@ addKvBtn.addEventListener('click', (e) => {
 });
 addSecretForm.addEventListener('submit', submitAddSecret);
 
-// View/Edit secret button listeners (event delegation)
+// View/Edit/Logs buttons (event delegation)
 document.addEventListener('click', (e) => {
   if (e.target.classList.contains('show-secret-btn')) {
     const secretName = e.target.dataset.name;
@@ -562,10 +782,38 @@ document.addEventListener('click', (e) => {
     const namespace = nsSelect.value;
     openEditSecretModal(namespace, secretName);
   }
+  if (e.target.classList.contains('logs-pod-btn')) {
+    const podName = e.target.dataset.name;
+    const namespace = nsSelect.value;
+    openPodLogsModal(namespace, podName);
+  }
+  if (e.target.classList.contains('describe-pod-btn')) {
+    const podName = e.target.dataset.name;
+    const namespace = nsSelect.value;
+    openDescribePodModal(namespace, podName);
+  }
+});
+
+// Pod logs modal listeners
+logsClose.addEventListener('click', () => closePodLogsModal());
+logsCloseBtn.addEventListener('click', () => closePodLogsModal());
+logsContainerSelect.addEventListener('change', () => {
+  if (currentPodName && currentPodNamespace) {
+    fetchAndDisplayLogs(currentPodNamespace, currentPodName, logsContainerSelect.value);
+  }
 });
 
 // View secret modal listeners
 viewClose.addEventListener('click', () => closeViewSecretModal());
 viewCloseBtn.addEventListener('click', () => closeViewSecretModal());
+
+// Describe pod modal listeners
+describeClose.addEventListener('click', () => closeDescribePodModal());
+describeCloseBtn.addEventListener('click', () => closeDescribePodModal());
+yamlToggle.addEventListener('change', () => {
+  if (currentPodDetails) {
+    renderPodDetails(currentPodDetails, yamlToggle.checked);
+  }
+});
 
 init().catch((err) => showBanner(`Startup error: ${err.message}`));

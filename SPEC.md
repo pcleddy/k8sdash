@@ -82,6 +82,22 @@ The Secrets table shows: name, type, data-key count, age. Secret values are **no
 
 All operations respect kubeconfig permissions; cluster RBAC denies unauthorized mutations.
 
+### FR-9: Pod description and logs
+- **Describe**: "Describe" button on each pod row. Modal displays:
+  - Status (phase, node, service account)
+  - Conditions (ready, scheduled, initialized with status colors)
+  - Container details (image, ready status, restart count, CPU/memory requests & limits)
+  - Init containers (if any)
+  - Labels (user-defined)
+  - Recent events (last 10, newest first)
+  - **Raw YAML toggle** for full pod object
+
+- **Logs**: "Logs" button on each pod row. Modal displays:
+  - Last 200 lines of container output
+  - Container dropdown for multi-container pods
+  - Dark terminal-style view with monospace font
+  - Graceful handling for containers not yet ready
+
 ## Data Shapes
 
 ### Deployment row
@@ -114,6 +130,8 @@ All operations respect kubeconfig permissions; cluster RBAC denies unauthorized 
 | POST   | `/api/secrets`                            | Creates a secret; body `{ namespace, name, data }`. |
 | GET    | `/api/secrets/:namespace/:name`           | Returns decoded secret; `{ name, namespace, type, data }`. |
 | PUT    | `/api/secrets/:namespace/:name`           | Updates secret data; body `{ data }`. Preserves metadata. |
+| GET    | `/api/pods/:namespace/:name`              | Returns pod details; `{ name, namespace, status, conditions, containers, events, raw }`. |
+| GET    | `/api/pods/:namespace/:name/logs?container=<name>&tail=<lines>` | Returns pod logs; `{ container, logs, timestamp }`. |
 
 All API responses are JSON; errors use `{ error: string }` with an appropriate HTTP status code (`4xx` for client issues, `5xx` for backend/cluster issues).
 
@@ -149,3 +167,10 @@ All API responses are JSON; errors use `{ error: string }` with an appropriate H
 11. Click "Edit" on a secret opens the form pre-populated with current data; namespace and name fields are locked.
 12. Editing and submitting updates the secret in place, preserving metadata; shows success message.
 13. Creating/editing respects kubeconfig RBAC; cluster rejection errors surface clearly.
+
+### Pod Debugging
+14. Click "Describe" on a pod opens a modal showing: status, conditions, containers (with image/ready/restarts/resources), init containers, labels, and recent events.
+15. "Show Raw YAML" toggle reveals full pod object for power users.
+16. Click "Logs" on a pod opens a modal with container dropdown; displays last 200 lines in terminal-style dark view.
+17. Switching containers in logs modal auto-fetches and displays that container's output.
+18. Pod describe/logs handle edge cases: pods not ready, no events, multiple containers.
