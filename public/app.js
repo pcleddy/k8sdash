@@ -10,6 +10,27 @@ const autoRefreshCb = document.getElementById('auto-refresh');
 const lastUpdated  = document.getElementById('last-updated');
 const errorBanner  = document.getElementById('error-banner');
 
+// Secret modal refs
+const addSecretModal = document.getElementById('add-secret-modal');
+const addSecretBtn   = document.getElementById('add-secret-btn');
+const modalClose     = document.getElementById('modal-close');
+const modalCancel    = document.getElementById('modal-cancel');
+const addSecretForm  = document.getElementById('add-secret-form');
+const secretNs       = document.getElementById('secret-ns');
+const secretName     = document.getElementById('secret-name');
+const kvPairs        = document.getElementById('kv-pairs');
+const addKvBtn       = document.getElementById('add-kv-btn');
+let kvCounter        = 0;
+let modalMode        = 'create'; // 'create' or 'edit'
+let editingSecret    = null; // { namespace, name } when editing
+
+// View secret modal refs
+const viewSecretModal    = document.getElementById('view-secret-modal');
+const viewSecretName     = document.getElementById('view-secret-name');
+const viewSecretBody     = document.getElementById('view-secret-body');
+const viewClose          = document.getElementById('view-close');
+const viewCloseBtn       = document.getElementById('view-close-btn');
+
 // In-flight AbortController for resource fetches
 let controller = null;
 let autoTimer  = null;
@@ -21,6 +42,12 @@ let autoTimer  = null;
 function showBanner(msg) {
   errorBanner.textContent = msg;
   errorBanner.classList.add('visible');
+  // Add success styling if message starts with ✓
+  if (msg.startsWith('✓')) {
+    errorBanner.classList.add('success');
+  } else {
+    errorBanner.classList.remove('success');
+  }
 }
 function hideBanner() {
   errorBanner.classList.remove('visible');
@@ -83,12 +110,16 @@ function renderServices(items) {
 }
 
 function renderSecrets(items) {
-  if (!items.length) return '<tr class="empty-row"><td colspan="4">No items.</td></tr>';
+  if (!items.length) return '<tr class="empty-row"><td colspan="5">No items.</td></tr>';
   return items.map((s) => `<tr>
     <td>${esc(s.name)}</td>
     <td>${esc(s.type)}</td>
     <td>${esc(s.dataKeys)}</td>
     <td>${esc(s.age)}</td>
+    <td>
+      <button class="show-secret-btn" data-name="${esc(s.name)}" type="button" title="View secret values">Show</button>
+      <button class="edit-secret-btn" data-name="${esc(s.name)}" type="button" title="Edit secret">Edit</button>
+    </td>
   </tr>`).join('');
 }
 
@@ -130,7 +161,7 @@ function renderSection(key, renderFn, colspan) {
 
 const applyDeployments  = renderSection('deployments',  renderDeployments,  6);
 const applyServices     = renderSection('services',     renderServices,     6);
-const applySecrets      = renderSection('secrets',      renderSecrets,      4);
+const applySecrets      = renderSection('secrets',      renderSecrets,      5);
 const applyPods         = renderSection('pods',         renderPods,         6);
 const applyStatefulSets = renderSection('statefulsets', renderStatefulSets, 5);
 
@@ -235,6 +266,237 @@ function refresh() {
 }
 
 // ---------------------------------------------------------------------------
+// View secret modal
+// ---------------------------------------------------------------------------
+
+async function openViewSecretModal(namespace, name) {
+  viewSecretName.textContent = name;
+  viewSecretBody.innerHTML = '<div style="color: #94a3b8;">Loading…</div>';
+  viewSecretModal.showModal();
+
+  try {
+    const res = await fetch(`/api/secrets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      throw new Error(body.error ?? `HTTP ${res.status}`);
+    }
+
+    const secret = await res.json();
+
+    // Build HTML to display key/value pairs
+    const kvHtml = Object.entries(secret.data ?? {})
+      .map(([key, value]) => `
+        <div class="secret-kv-display">
+          <div class="kv-key-display">${esc(key)}</div>
+          <div class="kv-value-display"><code>${esc(value)}</code></div>
+        </div>
+      `)
+      .join('');
+
+    const html = `
+      <div class="secret-view-info">
+        <p><strong>Namespace:</strong> ${esc(namespace)}</p>
+        <p><strong>Type:</strong> ${esc(secret.type)}</p>
+        <p><strong>Keys:</strong> ${Object.keys(secret.data ?? {}).length}</p>
+      </div>
+      <div class="secret-view-data">
+        <h3>Data</h3>
+        ${kvHtml}
+      </div>
+    `;
+
+    viewSecretBody.innerHTML = html;
+  } catch (err) {
+    viewSecretBody.innerHTML = `<div style="color: #dc2626;">Error: ${esc(err.message)}</div>`;
+  }
+}
+
+function closeViewSecretModal() {
+  viewSecretModal.close();
+}
+
+// ---------------------------------------------------------------------------
+// Secret creation modal
+// ---------------------------------------------------------------------------
+
+function openAddSecretModal() {
+  modalMode = 'create';
+  editingSecret = null;
+
+  // Update modal header
+  document.querySelector('.modal-header h2').textContent = 'Create Secret';
+  document.getElementById('modal-submit').textContent = 'Create Secret';
+
+  // Populate namespace dropdown in modal from current namespaces
+  const nsOptions = Array.from(nsSelect.options).map((opt) => opt.value);
+  secretNs.innerHTML = nsOptions
+    .map((ns) => `<option value="${esc(ns)}"${ns === nsSelect.value ? ' selected' : ''}>${esc(ns)}</option>`)
+    .join('');
+
+  // Enable namespace and name fields
+  secretNs.disabled = false;
+  secretName.disabled = false;
+
+  // Clear form
+  secretName.value = '';
+  kvPairs.innerHTML = '';
+  kvCounter = 0;
+  addKeyValuePair(); // Start with one empty pair
+
+  addSecretModal.showModal();
+}
+
+async function openEditSecretModal(namespace, name) {
+  modalMode = 'edit';
+  editingSecret = { namespace, name };
+
+  // Update modal header
+  document.querySelector('.modal-header h2').textContent = 'Edit Secret';
+  document.getElementById('modal-submit').textContent = 'Update Secret';
+
+  // Disable namespace and name (can't change these)
+  secretNs.disabled = true;
+  secretName.disabled = true;
+
+  // Clear form while loading
+  secretNs.innerHTML = '';
+  secretName.value = 'Loading…';
+  kvPairs.innerHTML = '';
+
+  try {
+    // Fetch current secret data
+    const res = await fetch(`/api/secrets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      throw new Error(body.error ?? `HTTP ${res.status}`);
+    }
+
+    const secret = await res.json();
+
+    // Populate fields
+    secretNs.innerHTML = `<option value="${esc(namespace)}">${esc(namespace)}</option>`;
+    secretNs.value = namespace;
+    secretName.value = name;
+
+    // Populate key/value pairs
+    kvPairs.innerHTML = '';
+    kvCounter = 0;
+    for (const [key, value] of Object.entries(secret.data ?? {})) {
+      const id = kvCounter++;
+      const div = document.createElement('div');
+      div.className = 'kv-pair';
+      // Auto-size textarea based on content
+      const rows = Math.min(Math.max(value.split('\n').length, 3), 15);
+      div.innerHTML = `
+        <input type="text" value="${esc(key)}" placeholder="Key" class="kv-key" data-id="${id}" />
+        <textarea placeholder="Value" class="kv-value" data-id="${id}" rows="${rows}">${esc(value)}</textarea>
+        <button type="button" class="kv-delete" data-id="${id}">Delete</button>
+      `;
+      kvPairs.appendChild(div);
+
+      const deleteBtn = div.querySelector('.kv-delete');
+      deleteBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        div.remove();
+      });
+    }
+
+    addSecretModal.showModal();
+  } catch (err) {
+    showBanner(`Failed to load secret: ${err.message}`);
+  }
+}
+
+function closeAddSecretModal() {
+  addSecretModal.close();
+}
+
+function addKeyValuePair() {
+  const id = kvCounter++;
+  const div = document.createElement('div');
+  div.className = 'kv-pair';
+  div.innerHTML = `
+    <input type="text" placeholder="Key (e.g. config.ini)" class="kv-key" data-id="${id}" />
+    <textarea placeholder="Value (supports multiline, e.g. file contents)" class="kv-value" data-id="${id}" rows="3"></textarea>
+    <button type="button" class="kv-delete" data-id="${id}">Delete</button>
+  `;
+  kvPairs.appendChild(div);
+
+  const deleteBtn = div.querySelector('.kv-delete');
+  deleteBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    div.remove();
+  });
+}
+
+async function submitAddSecret(e) {
+  e.preventDefault();
+
+  const namespace = secretNs.value;
+  const name = secretName.value.trim();
+
+  if (!namespace || !name) {
+    showBanner('Namespace and secret name are required');
+    return;
+  }
+
+  // Collect key/value pairs
+  const data = {};
+  const pairs = kvPairs.querySelectorAll('.kv-pair');
+  for (const pair of pairs) {
+    const key = pair.querySelector('.kv-key').value.trim();
+    const value = pair.querySelector('.kv-value').value.trim();
+    if (key && value) {
+      data[key] = value;
+    }
+  }
+
+  if (Object.keys(data).length === 0) {
+    showBanner('At least one key/value pair is required');
+    return;
+  }
+
+  addSecretBtn.disabled = true;
+  try {
+    let res;
+
+    if (modalMode === 'create') {
+      res = await fetch('/api/secrets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ namespace, name, data }),
+      });
+    } else {
+      // Edit mode
+      res = await fetch(`/api/secrets/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data }),
+      });
+    }
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      throw new Error(body.error ?? `HTTP ${res.status}`);
+    }
+
+    closeAddSecretModal();
+    const action = modalMode === 'create' ? 'created' : 'updated';
+    showBanner(`✓ Secret "${name}" ${action} in "${namespace}"`);
+    // Refresh secrets if we're in that namespace
+    if (nsSelect.value === namespace) {
+      refresh();
+    }
+    // Suppress the banner after 3 seconds
+    setTimeout(hideBanner, 3000);
+  } catch (err) {
+    showBanner(`Failed to ${modalMode === 'create' ? 'create' : 'update'} secret: ${err.message}`);
+  } finally {
+    addSecretBtn.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Bootstrap
 // ---------------------------------------------------------------------------
 
@@ -277,5 +539,33 @@ autoRefreshCb.addEventListener('change', () => scheduleAutoRefresh());
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') scheduleAutoRefresh();
 });
+
+// Secret modal listeners
+addSecretBtn.addEventListener('click', () => openAddSecretModal());
+modalClose.addEventListener('click', () => closeAddSecretModal());
+modalCancel.addEventListener('click', () => closeAddSecretModal());
+addKvBtn.addEventListener('click', (e) => {
+  e.preventDefault();
+  addKeyValuePair();
+});
+addSecretForm.addEventListener('submit', submitAddSecret);
+
+// View/Edit secret button listeners (event delegation)
+document.addEventListener('click', (e) => {
+  if (e.target.classList.contains('show-secret-btn')) {
+    const secretName = e.target.dataset.name;
+    const namespace = nsSelect.value;
+    openViewSecretModal(namespace, secretName);
+  }
+  if (e.target.classList.contains('edit-secret-btn')) {
+    const secretName = e.target.dataset.name;
+    const namespace = nsSelect.value;
+    openEditSecretModal(namespace, secretName);
+  }
+});
+
+// View secret modal listeners
+viewClose.addEventListener('click', () => closeViewSecretModal());
+viewCloseBtn.addEventListener('click', () => closeViewSecretModal());
 
 init().catch((err) => showBanner(`Startup error: ${err.message}`));

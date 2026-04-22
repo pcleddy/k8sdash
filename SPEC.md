@@ -1,7 +1,7 @@
 # k8sdash — Specification
 
 ## Overview
-A minimal single-page web app for browsing read-only Kubernetes cluster state. A tiny Node.js server reads the current kubeconfig at `~/.kube/config`, talks to the cluster via `@kubernetes/client-node`, and serves a static HTML page plus a small JSON API. The page renders five resource sections for the selected namespace.
+A minimal single-page web app for browsing and managing Kubernetes cluster state (read-only resources, with read-write support for secrets). A tiny Node.js server reads the current kubeconfig at `~/.kube/config`, talks to the cluster via `@kubernetes/client-node`, and serves a static HTML page plus a small JSON API. The page renders five resource sections for the selected namespace with actions for secret management.
 
 ## Goals
 - Zero config beyond an existing, working `~/.kube/config`.
@@ -12,7 +12,7 @@ A minimal single-page web app for browsing read-only Kubernetes cluster state. A
 
 ## Non-Goals (v1)
 - Authentication / multi-user support (assumes single local user).
-- Mutating the cluster (no create / edit / delete).
+- Mutating other cluster resources (Deployments, Pods, etc.; secrets are an exception).
 - Streaming logs, exec into pods, port-forward.
 - Advanced filtering, search, or sorting beyond simple table rendering.
 - Production hardening (TLS termination, rate limiting, RBAC proxy).
@@ -59,8 +59,28 @@ The page fetches `/api/resources` on load, on namespace change, when the user cl
 ### FR-6: Error handling
 If the backend returns an error (e.g., cluster unreachable, RBAC denied for a kind), the affected section shows an inline error message with the backend's error text, and the other sections still render if their fetches succeeded.
 
-### FR-7: Secrets safety
-The Secrets table MUST NOT display the decoded `data` values. It shows only: name, type, data-key count, age. This keeps secret material off the page by default.
+### FR-7: Secrets management
+The Secrets table shows: name, type, data-key count, age. Secret values are **not displayed by default** (hidden for safety). Each secret row has two action buttons:
+- **Show**: Fetches and displays decoded secret values in a read-only modal.
+- **Edit**: Opens a modal to create/modify secret key/value pairs. Values support multiline input for storing file contents (INI, JSON, YAML, etc.).
+
+### FR-8: Secret creation and editing
+- **Create**: "+ Add Secret" button in the Secrets header. Form allows:
+  - Namespace selection
+  - Secret name input (alphanumeric + hyphens)
+  - Multiple key/value pairs (dynamic add/remove)
+  - Multiline value support for file contents
+  - Server validates and creates Opaque-type secret via Kubernetes API
+
+- **Edit**: "Edit" button on each secret row. Form allows:
+  - View/modify current secret data
+  - Namespace and name fields locked (read-only)
+  - Add/remove key/value pairs
+  - Server uses PUT (full replacement) to update secret, preserving metadata
+
+- **View**: "Show" button fetches secret and displays all decoded key/value pairs in a modal with proper formatting (whitespace/newlines preserved).
+
+All operations respect kubeconfig permissions; cluster RBAC denies unauthorized mutations.
 
 ## Data Shapes
 
@@ -82,15 +102,18 @@ The Secrets table MUST NOT display the decoded `data` values. It shows only: nam
 `age` is a human-friendly string (e.g. `5d`, `3h`, `42m`) derived from `metadata.creationTimestamp`.
 
 ## HTTP API Summary
-| Method | Path                              | Description                                         |
-|--------|-----------------------------------|-----------------------------------------------------|
-| GET    | `/`                               | Serves `index.html`.                                |
-| GET    | `/static/*`                       | Serves static client assets (JS, CSS).              |
-| GET    | `/api/contexts`                   | Returns `{ contexts: string[], current: string }`.  |
-| GET    | `/api/context`                    | Returns current context + cluster name.             |
-| POST   | `/api/context`                    | Switches context; body `{ context: string }`.       |
-| GET    | `/api/namespaces`                 | Returns list of namespaces.                         |
-| GET    | `/api/resources?namespace=<ns>`   | Returns all five resource lists for `ns`.           |
+| Method | Path                                      | Description                                         |
+|--------|-------------------------------------------|-----------------------------------------------------|
+| GET    | `/`                                       | Serves `index.html`.                                |
+| GET    | `/static/*`                               | Serves static client assets (JS, CSS).              |
+| GET    | `/api/contexts`                           | Returns `{ contexts: string[], current: string }`.  |
+| GET    | `/api/context`                            | Returns current context + cluster name.             |
+| POST   | `/api/context`                            | Switches context; body `{ context: string }`.       |
+| GET    | `/api/namespaces`                         | Returns list of namespaces.                         |
+| GET    | `/api/resources?namespace=<ns>`           | Returns all five resource lists for `ns`.           |
+| POST   | `/api/secrets`                            | Creates a secret; body `{ namespace, name, data }`. |
+| GET    | `/api/secrets/:namespace/:name`           | Returns decoded secret; `{ name, namespace, type, data }`. |
+| PUT    | `/api/secrets/:namespace/:name`           | Updates secret data; body `{ data }`. Preserves metadata. |
 
 All API responses are JSON; errors use `{ error: string }` with an appropriate HTTP status code (`4xx` for client issues, `5xx` for backend/cluster issues).
 
@@ -103,14 +126,26 @@ All API responses are JSON; errors use `{ error: string }` with an appropriate H
 
 ## Security Considerations
 - Binds to `127.0.0.1` by default; no auth is added because the surface is localhost only.
-- No mutation endpoints.
-- Secret values are never serialized to the client.
-- The server forwards whatever permissions the kubeconfig grants; the UI surfaces per-kind errors if RBAC denies a list call.
+- Secret mutation endpoints (`POST`, `PUT`) exist only for secrets; all other resources are read-only.
+- Secret values are **not displayed by default**; revealed only via explicit "Show" action.
+- All secret operations (create, view, edit) respect kubeconfig permissions. The server forwards whatever permissions the kubeconfig grants; cluster RBAC denies unauthorized mutations.
+- Base64-encoded values are decoded only for display and storage; never logged or persisted unencrypted.
 
 ## Acceptance Criteria
+
+### Core (Read-Only)
 1. `npm install && npm start` launches the server with only a working `~/.kube/config`.
 2. Visiting `http://localhost:3000` shows the five sections populated with data from the `default` namespace.
 3. Changing the dropdown re-queries the server and updates all five tables.
 4. Clicking Refresh re-fetches immediately; the "Last updated" timestamp changes.
 5. With auto-refresh enabled, tables update automatically about every 2 minutes.
 6. If the cluster is unreachable, the page surfaces a clear error rather than hanging.
+
+### Secret Management
+7. Click "+ Add Secret" button opens a form to create a secret with namespace, name, and key/value pairs.
+8. Value fields support multiline input; INI/JSON/YAML file contents can be pasted as values.
+9. Submitting creates the secret in the cluster; table refreshes and shows success message.
+10. Click "Show" on a secret opens a read-only modal displaying all decoded key/value pairs (preserving multiline formatting).
+11. Click "Edit" on a secret opens the form pre-populated with current data; namespace and name fields are locked.
+12. Editing and submitting updates the secret in place, preserving metadata; shows success message.
+13. Creating/editing respects kubeconfig RBAC; cluster rejection errors surface clearly.

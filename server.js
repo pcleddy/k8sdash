@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getContext, listContexts, switchContext, listNamespaces, listResources } from './lib/k8s.js';
+import { getContext, listContexts, switchContext, listNamespaces, listResources, createSecret, getSecret, updateSecret } from './lib/k8s.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, 'public');
@@ -155,6 +155,115 @@ if (pathname === '/api/contexts' && req.method === 'GET') {
       const { status, message } = apiError(err);
       json(res, status, { error: message });
     }
+    return;
+  }
+
+  if (pathname === '/api/secrets' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const { namespace, name, data } = JSON.parse(body);
+
+        // Validation
+        if (!validNamespace(namespace)) {
+          json(res, 400, { error: 'invalid namespace' });
+          return;
+        }
+        if (typeof name !== 'string' || !name.match(/^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/)) {
+          json(res, 400, { error: 'invalid secret name (must be alphanumeric + hyphens)' });
+          return;
+        }
+        if (!data || typeof data !== 'object' || Object.keys(data).length === 0) {
+          json(res, 400, { error: 'data required (at least one key/value pair)' });
+          return;
+        }
+
+        // Validate all keys and values are strings
+        for (const [key, value] of Object.entries(data)) {
+          if (typeof key !== 'string' || typeof value !== 'string') {
+            json(res, 400, { error: 'all keys and values must be strings' });
+            return;
+          }
+        }
+
+        createSecret(namespace, name, data)
+          .then(() => {
+            json(res, 201, { message: `Secret ${name} created in ${namespace}` });
+          })
+          .catch((err) => {
+            const { status, message } = apiError(err);
+            json(res, status, { error: message });
+          });
+      } catch (err) {
+        console.error(err);
+        json(res, 400, { error: err.message });
+      }
+    });
+    return;
+  }
+
+  // GET /api/secrets/:namespace/:name
+  const secretMatch = pathname.match(/^\/api\/secrets\/([^\/]+)\/([^\/]+)$/);
+  if (secretMatch && req.method === 'GET') {
+    const [, namespace, name] = secretMatch;
+
+    if (!validNamespace(namespace)) {
+      json(res, 400, { error: 'invalid namespace' });
+      return;
+    }
+
+    try {
+      const secret = await getSecret(namespace, name);
+      json(res, 200, secret);
+    } catch (err) {
+      const { status, message } = apiError(err);
+      json(res, status, { error: message });
+    }
+    return;
+  }
+
+  // PATCH /api/secrets/:namespace/:name
+  if (secretMatch && req.method === 'PATCH') {
+    const [, namespace, name] = secretMatch;
+
+    if (!validNamespace(namespace)) {
+      json(res, 400, { error: 'invalid namespace' });
+      return;
+    }
+
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const { data } = JSON.parse(body);
+
+        if (!data || typeof data !== 'object' || Object.keys(data).length === 0) {
+          json(res, 400, { error: 'data required (at least one key/value pair)' });
+          return;
+        }
+
+        // Validate all keys and values are strings
+        for (const [key, value] of Object.entries(data)) {
+          if (typeof key !== 'string' || typeof value !== 'string') {
+            json(res, 400, { error: 'all keys and values must be strings' });
+            return;
+          }
+        }
+
+        updateSecret(namespace, name, data)
+          .then(() => {
+            json(res, 200, { message: `Secret ${name} updated in ${namespace}` });
+          })
+          .catch((err) => {
+            const { status, message } = apiError(err);
+            json(res, status, { error: message });
+          });
+      } catch (err) {
+        console.error(err);
+        json(res, 400, { error: err.message });
+      }
+    });
     return;
   }
 
