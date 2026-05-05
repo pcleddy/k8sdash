@@ -5,6 +5,7 @@ const AUTO_REFRESH_MS = 120_000;
 // DOM refs
 const ctxSelect    = document.getElementById('ctx-select');
 const nsSelect     = document.getElementById('ns-select');
+const filterInput  = document.getElementById('filter-input');
 const refreshBtn   = document.getElementById('refresh-btn');
 const autoRefreshCb = document.getElementById('auto-refresh');
 const lastUpdated  = document.getElementById('last-updated');
@@ -53,6 +54,7 @@ const yamlToggle        = document.getElementById('yaml-toggle');
 // In-flight AbortController for resource fetches
 let controller = null;
 let autoTimer  = null;
+let lastData   = null;
 
 // ---------------------------------------------------------------------------
 // Error banner
@@ -189,6 +191,30 @@ const applyPods         = renderSection('pods',         renderPods,         8);
 const applyStatefulSets = renderSection('statefulsets', renderStatefulSets, 5);
 
 // ---------------------------------------------------------------------------
+// Filter
+// ---------------------------------------------------------------------------
+
+function filterItems(items, query) {
+  if (!query) return items;
+  const q = query.toLowerCase();
+  return items.filter((item) => item.name.toLowerCase().includes(q));
+}
+
+function applyFilter() {
+  if (!lastData) return;
+  const q = filterInput.value.trim();
+  const f = (data) => {
+    if (!data || data.error) return data;
+    return filterItems(Array.isArray(data) ? data : [], q);
+  };
+  applyDeployments(f(lastData.deployments));
+  applyServices(f(lastData.services));
+  applySecrets(f(lastData.secrets));
+  applyPods(f(lastData.pods));
+  applyStatefulSets(f(lastData.statefulSets));
+}
+
+// ---------------------------------------------------------------------------
 // Context switching
 // ---------------------------------------------------------------------------
 
@@ -252,13 +278,8 @@ async function fetchResources(namespace) {
     }
     const data = await res.json();
     hideBanner();
-
-    applyDeployments(data.deployments);
-    applyServices(data.services);
-    applySecrets(data.secrets);
-    applyPods(data.pods);
-    applyStatefulSets(data.statefulSets);
-
+    lastData = data;
+    applyFilter();
     const ts = data.fetchedAt ? new Date(data.fetchedAt).toLocaleTimeString() : new Date().toLocaleTimeString();
     lastUpdated.textContent = `Last updated: ${ts}`;
   } catch (err) {
@@ -754,6 +775,7 @@ async function init() {
 
 ctxSelect.addEventListener('change', () => switchContext(ctxSelect.value));
 nsSelect.addEventListener('change', () => refresh());
+filterInput.addEventListener('input', () => applyFilter());
 refreshBtn.addEventListener('click', () => refresh());
 autoRefreshCb.addEventListener('change', () => scheduleAutoRefresh());
 document.addEventListener('visibilitychange', () => {
